@@ -12,7 +12,7 @@ def configuration(parent_package='',top_path=None):
 
 def main():
     from numpy.distutils.core import setup
-    setup(name='pyfir',
+    setup(name='flogiston',
           version='0.1',
           description='Link fMRI data to cognitive models like the LBA model',
           author='Gilles de Hollander',
