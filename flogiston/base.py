@@ -65,9 +65,14 @@ def sample_single_later_hrf(ter=0.1,
     nnot = n_trials
     
     rts = []
+    
+    vs = np.zeros((0,) )
+
     while nnot > 0:
-        vs=stats.truncnorm.rvs((0-v)/float(sv), np.infty, loc=v, scale=sv, size=nnot)
-        tmp = ter + (b / vs)
+        tmp_vs=stats.truncnorm.rvs((0-v)/float(sv), np.infty, loc=v, scale=sv, size=nnot)
+        tmp = ter + (b / tmp_vs)
+        vs = np.concatenate((vs, tmp_vs[tmp < upper_limit_rt]))
+
         tmp = tmp[tmp < upper_limit_rt]
         rts += list(tmp)
         nnot = n_trials - len(rts)
@@ -76,8 +81,9 @@ def sample_single_later_hrf(ter=0.1,
         
         
     # HRF  
-    peak_heights = hrf_height_intercept + theta_height * (v - vs)
-    peak_delays = hrf_delay_intercept + theta_delay * (v - vs)
+    peak_heights = hrf_height_intercept + theta_height * (vs - v)
+    peak_delays = hrf_delay_intercept + theta_delay * (vs - v)
+
     
     frametimes = np.arange(0, np.max(onsets) + 20, TR)
 
@@ -86,6 +92,58 @@ def sample_single_later_hrf(ter=0.1,
     
     return rts, bold, frametimes, onsets
 
+
+
+def sample_single_lba_hrf(ter=0.1, 
+                          A=0.2,
+                          b=1.0,
+                          v=2.0, 
+                          sv=1.0, 
+                          onsets=np.arange(0, 1500, 20),
+                          TR=2.0,
+                          hrf_height_intercept=1.0, 
+                          hrf_delay_intercept=6, 
+                          theta_height=1.0, 
+                          theta_delay=1.0,
+                          upper_limit_rt=4.0):
+    
+
+    
+    n_trials = len(onsets)
+
+    nnot = n_trials
+    
+    rts = []
+    
+    vs = np.zeros((0,) )
+    zs = np.zeros((0,) )
+
+    while nnot > 0:
+        tmp_vs=stats.truncnorm.rvs((0-v)/float(sv), np.infty, loc=v, scale=sv, size=nnot)
+        tmp_zs = stats.uniform.rvs(0, A, size=nnot)
+        tmp = ter + ((b - tmp_zs) / tmp_vs)
+
+        vs = np.concatenate((vs, tmp_vs[tmp < upper_limit_rt]))
+        zs = np.concatenate((zs, tmp_zs[tmp < upper_limit_rt]))
+
+        tmp = tmp[tmp < upper_limit_rt]
+        rts += list(tmp)
+        nnot = n_trials - len(rts)
+
+    rts = np.array(rts)
+        
+        
+    # HRF  
+    peak_heights = hrf_height_intercept + theta_height * (zs - (b - A/2))
+    peak_delays = hrf_delay_intercept + theta_delay * (zs - (b - A/2))
+
+    
+    frametimes = np.arange(0, np.max(onsets) + 20, TR)
+
+    bold = simulate_bold(frametimes, onsets, peak_heights, peak_delays)
+    
+    
+    return rts, bold, frametimes, onsets
 #def predict_bold(t,
                  #onsets,
                  #peak_height=1,

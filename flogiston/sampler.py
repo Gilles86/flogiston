@@ -1,6 +1,115 @@
 import numpy as np
 from scipy import stats
-from utils import protect_zeroes
+from utils import protect_zeroes, shuffle
+from progressbar import ProgressBar
+from collections import OrderedDict
+
+
+
+from copy import deepcopy
+
+class Model(object):
+    
+    def __init__(self, nodes):
+        self.nodes = {}        
+        self.stochastics = []
+        
+        for node in nodes:
+            self.nodes[node.name] = node
+            
+            for key, parent in node.parents.items():
+                self.stochastics.append((node, key))
+        
+    def get_node(self, name):
+        return self.nodes[name]
+    
+    def copy(self):
+        return deepcopy(self)
+    
+    def get_starting_values(self):
+        for node in self.nodes.values():
+            node.get_starting_values()
+            
+    def get_param_vector(self):
+        return np.array([node.get_value(param) for node, param in self.stochastics])
+    
+    def set_param_vector(self, vector):
+        
+        for i, (node, param) in enumerate(self.stochastics):
+            node.set_value(param, vector[i])
+            
+    def get_logp(self):
+        logp = 0
+        for node, param in self.stochastics:
+            logp += node.get_logp()
+
+        return logp
+            
+class DESampler(object):
+    
+    
+    def __init__(self, model):
+        self.model = model
+        
+    
+    def sample(self, n_chains=None, n_samples=500, sampling_scheme=None, gamma=None, b=0.01):
+        
+        
+        n_params = len(self.model.stochastics)
+        
+        if not n_chains:
+            n_chains = 2*n_params + 1
+            
+        if not gamma:
+            gamma = 2.38 / np.sqrt(2 * n_params)
+        
+        self.chains = np.zeros((n_chains, n_params, n_samples))
+        
+        models= []
+        
+        for i in np.arange(n_chains):
+            models.append(self.model.copy())
+            models[-1].get_starting_values()
+        
+        for chain in np.arange(n_chains):
+            self.chains[chain, :, 0] = models[chain].get_param_vector()
+            
+        selects = np.apply_along_axis(shuffle, 1, np.tile(np.arange(n_chains), (n_chains*n_samples, 1)))[:, :2]
+        selects = selects.reshape((n_chains, n_samples, 2))
+        
+        bs = stats.uniform.rvs(-b, b*2, (n_chains, n_params, n_samples))
+        
+        unif = np.log(stats.uniform.rvs(0, 1, (n_chains, n_samples)))
+
+
+        pbar = ProgressBar(n_samples)
+        
+        for sample in np.arange(1, n_samples):
+            pbar.animate(sample)
+            for chain in np.arange(n_chains):
+                old_logp = models[chain].get_logp()
+                
+                chain_m = selects[chain, sample, 0]
+                chain_n = selects[chain, sample, 1]
+                
+                proposal_param = models[chain].get_param_vector() + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1]) + bs[chain, :, sample]
+                
+                models[chain].set_param_vector(proposal_param)
+                
+                new_logp = models[chain].get_logp()
+                
+                # Accept
+                if new_logp - old_logp > unif[chain, sample]:
+                    self.chains[chain, :, sample] = proposal_param
+                else:
+                    self.chains[chain, :, sample] = self.chains[chain, :, sample - 1]
+                    models[chain].set_param_vector(self.chains[chain, :, sample - 1])
+                    models[chain].logp = old_logp
+
+
+        def plot_posterior(self, parameter):
+            
+
 
 
 class Node:
@@ -45,7 +154,7 @@ class Node:
         #print 'parents: %s' % str(self.parents)
 
         self.logp = None
-        self.get_logp()
+        #self.get_logp()
 
  
     def get_logp(self):
@@ -78,7 +187,11 @@ class Node:
                 parents.logp = None
         
     def get_value(self, parameter):
-        return self.value[parameter]
+        return self.parameters[parameter]
+
+    def get_starting_values(self):
+        for key, parent in self.parents.items():
+            self.parameters[key] = parent.random()
 
 
 class FixedValueNode(Node):
