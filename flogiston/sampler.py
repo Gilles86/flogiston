@@ -3,23 +3,26 @@ from scipy import stats
 from utils import protect_zeroes, shuffle
 from progressbar import ProgressBar
 from collections import OrderedDict
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 
-from copy import deepcopy
+from copy import deepcopy, copy
 
 class Model(object):
     
     def __init__(self, nodes):
-        self.nodes = {}        
-        self.stochastics = []
+
+        self.nodes = nodes        
         
+        stochastics = []
+
         for node in nodes:
-            self.nodes[node.name] = node
-            
-            for key, parent in node.parents.items():
-                self.stochastics.append((node, key))
+            stochastics += [n for n in node.parents.values() if n.is_stochastic]
         
+        self.stochastics = OrderedDict([(n.name, n) for n in set(stochastics)])        
+             
     def get_node(self, name):
         return self.nodes[name]
     
@@ -27,20 +30,20 @@ class Model(object):
         return deepcopy(self)
     
     def get_starting_values(self):
-        for node in self.nodes.values():
+        for node in self.stochastics.values():
             node.get_starting_values()
             
     def get_param_vector(self):
-        return np.array([node.get_value(param) for node, param in self.stochastics])
+        return np.array([node.get_value() for node in self.stochastics.values()])
     
     def set_param_vector(self, vector):
         
-        for i, (node, param) in enumerate(self.stochastics):
-            node.set_value(param, vector[i])
+        for i, node in enumerate(self.stochastics.values()):
+            node.set_value(vector[i])
             
     def get_logp(self):
         logp = 0
-        for node, param in self.stochastics:
+        for node in self.nodes:
             logp += node.get_logp()
 
         return logp
@@ -64,6 +67,9 @@ class DESampler(object):
             gamma = 2.38 / np.sqrt(2 * n_params)
         
         self.chains = np.zeros((n_chains, n_params, n_samples))
+        self.accepted = np.zeros_like(self.chains)
+        self.new_logp = np.zeros((n_chains, n_samples))
+        self.old_logp = np.zeros((n_chains, n_samples))
         
         models= []
         
@@ -81,80 +87,117 @@ class DESampler(object):
         
         unif = np.log(stats.uniform.rvs(0, 1, (n_chains, n_samples)))
 
-
         pbar = ProgressBar(n_samples)
+
+
+        if sampling_scheme:
+            tmp = []
+            for block in sampling_scheme:
+                tmp.append([self.model.stochastics.keys().index(e) for e in block])
+        
+            sampling_scheme = tmp
         
         for sample in np.arange(1, n_samples):
-            pbar.animate(sample)
-            for chain in np.arange(n_chains):
-                old_logp = models[chain].get_logp()
-                
-                chain_m = selects[chain, sample, 0]
-                chain_n = selects[chain, sample, 1]
-                
-                proposal_param = models[chain].get_param_vector() + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1]) + bs[chain, :, sample]
-                
-                models[chain].set_param_vector(proposal_param)
-                
-                new_logp = models[chain].get_logp()
-                
-                # Accept
-                if new_logp - old_logp > unif[chain, sample]:
-                    self.chains[chain, :, sample] = proposal_param
-                else:
-                    self.chains[chain, :, sample] = self.chains[chain, :, sample - 1]
-                    models[chain].set_param_vector(self.chains[chain, :, sample - 1])
-                    models[chain].logp = old_logp
 
 
-        def plot_posterior(self, parameter):
+            if sampling_scheme:
+                for block in sampling_scheme:
+                    for chain in np.arange(n_chains):
+                        
+                        old_logp = models[chain].get_logp()
+                        
+                        chain_m = selects[chain, sample, 0]
+                        chain_n = selects[chain, sample, 1]
+
+                        current_param = models[chain].get_param_vector()
+
+                       
+                        proposal_param = current_param
+                        proposal_param[block] = current_param[block] + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1])[block] + bs[chain, :, sample][block]
+                        
+                        tmp_model = models[chain].copy()
+                        tmp_model.set_param_vector(proposal_param)
+                        
+                        new_logp = tmp_model.get_logp()
+                        
+                        self.old_logp[chain, sample] = old_logp 
+                        self.new_logp[chain, sample] = new_logp
+                        
+                        # Accept
+                        if new_logp - old_logp > unif[chain, sample]:
+                            self.chains[chain, :, sample] = proposal_param
+                            models[chain] = tmp_model
+                        else:
+                            self.chains[chain, :, sample] = self.chains[chain, :, sample - 1]
+
+
+            else:
+                for chain in np.arange(n_chains):
+                    old_logp = models[chain].get_logp()
+                    
+                    chain_m = selects[chain, sample, 0]
+                    chain_n = selects[chain, sample, 1]
+                    
+                    proposal_param = models[chain].get_param_vector() + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1]) + bs[chain, :, sample]
+                    
+                    tmp_model = models[chain].copy()
+                    tmp_model.set_param_vector(proposal_param)
+                    
+                    new_logp = tmp_model.get_logp()
+                    
+                    # Accept
+                    if new_logp - old_logp > unif[chain, sample]:
+                        self.chains[chain, :, sample] = proposal_param
+                        models[chain] = tmp_model
+                    else:
+                        self.chains[chain, :, sample] = self.chains[chain, :, sample - 1]
+                    
+            pbar.animate(sample + 1)
+
+
+    def get_trace(self, key):
+        idx = self.model.stochastics.keys().index(key)
+        return self.chains[:, idx, :]
+
+    def plot_traces(self, burnin=0, thin=1):
+        keys = sorted(self.model.stochastics.keys())
+        
+        for key in keys:
+            plt.figure()
+            plt.title(key)
+            sns.distplot(self.get_trace(key)[:, burnin::thin].ravel())
             
 
 
 
 class Node:
 
-    def __init__(self, name, parameters, value=None):
+    def __init__(self, name, parents, value=None, observed=False):
 
         self.name = name
 
-        self.parents = {}
-        self.parameters = {}
+        self.observed = observed
 
-        for key, v in parameters.items():
-            # {'parameter':(parent, 0.2) syntax
-            if type(v) == tuple:
-                self.parents[key] = v[0]
-                self.parameters[key] = v[1]
+        self.parents = {}
+        
+        for key, v in parents.items():
             # parameter is linked to parent node
-            elif hasattr(v, 'logp'):
+            if hasattr(v, 'logp'):
                 self.parents[key] = v
-                self.parameters[key] = None
             # fixed v for parameter
             else:
-                self.parameters[key] = v
+                self.parents[key] = FixedValueNode('%s.%s' % (name, key), v)
                 
         # Add this node as a child to all the parent nodes
         for key in self.parents.keys():
-            self.parents[key].children.append((self, key))
+            self.parents[key].children.append(self)
                 
-        # Set parameter values for non-initialized ones
-        for key, v in self.parameters.items():
-            if v == None:
-                self.parameters[key] = self.parents[key].random()
-        
-        # If observed, set value
         if value != None:
             self.value = value
-            self.observed = True
         else:
-            self.observed = False
-        
-        #print 'parameters: %s' % str(self.parameters)
-        #print 'parents: %s' % str(self.parents)
+            self.value = self.random()
 
         self.logp = None
-        #self.get_logp()
 
  
     def get_logp(self):
@@ -165,84 +208,82 @@ class Node:
             self.logp = 0
             
             # Prior node
-            if not self.observed:            
-                x = [c.get_value(value) for c, value in self.children]
-                self.logp += self._likelihood(x)
-            # Likelihood node
-            else:
-                for key, parent in self.parents.items():
-                    self.logp += parent._likelihood(self.parameters[key])
+            for parent in self.parents.values():
+                self.logp += parent.get_logp()
 
-                self.logp += self._likelihood(self.value)
+            self.logp += self._likelihood(self.value)
                         
             
         return self.logp
     
-    def set_value(self, parameter, value):
-        self.parameters[parameter] = value
+    def set_value(self, value):
+        for child in self.children:
+            child.logp = None
+
         self.logp = None
+        self.value = value
         
-        if not self.is_group_parameter:
-            for parent in self.parents:
-                parents.logp = None
-        
-    def get_value(self, parameter):
-        return self.parameters[parameter]
+    def get_value(self):
+        return self.value
 
     def get_starting_values(self):
-        for key, parent in self.parents.items():
-            self.parameters[key] = parent.random()
+        self.set_value(self.random())
 
 
 class FixedValueNode(Node):
 
     def __init__(self, name, value):
         self.children = []
-        Node.__init__(self, name, {}, {name:value})
+        self.is_stochastic = False
+        Node.__init__(self, name, {}, value=value)
 
     def _likelihood(self, values):
         return 0
 
     def random(self):
-        return self.parameters[self.name]
+        return self.value
 
 
 class Normal(Node):
     
-    def __init__(self, name, mu, sigma, value=None):
+    def __init__(self, name, mu, sigma, value=None, observed=False):
         self.is_group_parameter = True
         self.children = []
+
+        self.is_stochastic = not observed
         
         # No parents, fixed values
-        Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, value )
+        Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, value, observed=observed )
     
     def _likelihood(self, values):
-        return np.sum(np.log(protect_zeroes(stats.norm.pdf(loc=self.parameters['mu'], scale=self.parameters['sigma'], x=values))))
+        return np.sum(np.log(protect_zeroes(stats.norm.pdf(loc=self.parents['mu'].get_value(), scale=self.parents['sigma'].get_value(), x=values))))
 
     def random(self):
-        return stats.norm.rvs(loc=self.parameters['mu'], scale=self.parameters['sigma'])
+        return stats.norm.rvs(loc=self.parents['mu'].get_value(), scale=self.parents['sigma'].get_value())
     
     
 class TruncatedNormal(Node):
     
-    def __init__(self, name, mu, sigma, lower=0, upper=np.inf):
+    def __init__(self, name, mu, sigma, lower=0, upper=np.inf, observed=False, value=None):
         
         a, b = (lower - mu) / sigma, (upper - mu) / sigma                    
         self.is_group_parameter = True
         self.children = []
 
-        Node.__init__(self, name, {'mu':mu, 'sigma':sigma, 'a':a, 'b':b}, )
+        self.is_stochastic = not observed
+
+        Node.__init__(self, name, {'mu':mu, 'sigma':sigma, 'a':a, 'b':b}, value=value )
         
     
     def _likelihood(self, values):
-        return np.sum(np.log(protect_zeroes(stats.truncnorm.pdf(loc=self.parameters['mu'],
-                                                                scale=self.parameters['sigma'], 
-                                                                a=self.parameters['a'], 
-                                                                b=self.parameters['b'], 
+        return np.sum(np.log(protect_zeroes(stats.truncnorm.pdf(loc=self.parents['mu'].get_value(),
+                                                                scale=self.parents['sigma'].get_value(), 
+                                                                a=self.parents['a'].get_value(), 
+                                                                b=self.parents['b'].get_value(), 
                                                                 x=values))))
     def random(self):
-        return stats.truncnorm.rvs(loc=self.parameters['mu'],
-                                   scale=self.parameters['sigma'], 
-                                   a=self.parameters['a'], 
-                                   b=self.parameters['b'],)
+        return stats.truncnorm.rvs(loc=self.parents['mu'].get_value(),
+                                   scale=self.parents['sigma'].get_value(), 
+                                   a=self.parents['a'].get_value(), 
+                                   b=self.parents['b'].get_value(),)
     

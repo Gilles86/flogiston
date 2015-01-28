@@ -38,11 +38,7 @@ def get_likelihood_hrf(y, frametimes, onsets, heights, peak_delays=None):
     
     resid = y - y_
 
-    #plt.plot(y_)
-    #plt.plot(y)
-    #plt.xlim(0, 100)
-    
-    return pm.normal_like(resid, 0, np.std(resid))
+    return pm.normal_like(resid, 0, 1/np.std(resid)**2)
 
 
 
