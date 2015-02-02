@@ -138,12 +138,14 @@ class DESampler(object):
                     self.old_logp[:, sample, block_idx] = old_logps
                     self.new_logp[:, sample, block_idx] = new_logps
                     
-                    models = np.where(new_logps - old_logps < unif[chain, sample], tmp_models, models)
+                    models = np.where(new_logps - old_logps > unif[chain, sample], tmp_models, models)
             
                 for i, m in enumerate(models):
                     self.chains[i, :, sample] = m.get_param_vector()
                         
                 pbar.animate(sample + 1)
+
+            self.pool.close()
 
         
         else:
