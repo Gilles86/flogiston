@@ -1,5 +1,7 @@
 import numpy as np
 from scipy import stats
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 ## NOTE: is it a good idea to set a hard numerical threshold (i.e., 7)?
 ##  should maybe depend on mean/sd? E.g. crit=mean+7*sd ?
@@ -32,5 +34,21 @@ def simple_single_trial_ols(frametimes, onsets, bold):
                      scale =1.0)
     
     return np.linalg.pinv(X.T.dot(X)).dot(X.T).dot(bold)
+
+
+def data_histogram(responses, RTs, max_RT=2.0, color_palette='Set1', **kwargs):
     
-    
+    if 'alpha' not in kwargs:
+        kwargs['alpha'] = 0.8
+
+
+    bins = np.linspace(0, max_RT, np.min((np.max((responses.shape[0] / 25, 25)), 50)))
+    bin_width = bins[1] - bins[0]
+
+    colors = sns.color_palette(color_palette)
+
+    for resp, color in zip(np.unique(responses), colors):
+        hist, bin_edges = np.histogram(RTs[responses == resp], bins=bins)
+        hist = hist / bin_width / responses.shape[0]
+        plt.bar(bin_edges[:-1], hist, width=(bin_edges[1] - bin_edges[0]), color=color, **kwargs)
+        
