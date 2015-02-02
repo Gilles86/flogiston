@@ -5,6 +5,7 @@ from progressbar import ProgressBar
 from collections import OrderedDict
 import seaborn as sns
 import matplotlib.pyplot as plt
+import multiprocessing
 
 
 
@@ -47,7 +48,10 @@ class Model(object):
             logp += node.get_logp()
 
         return logp
-            
+
+def _get_logp(model):
+    return model.get_logp()
+             
 class DESampler(object):
     
     
@@ -55,10 +59,16 @@ class DESampler(object):
         self.model = model
         
     
-    def sample(self, n_chains=None, n_samples=500, sampling_scheme=None, gamma=None, b=0.01):
+    def sample(self, n_chains=None, n_samples=500, sampling_scheme=None, gamma=None, n_procs=None, migration=0.05, b=0.01):
+       
+        if n_procs:
+            self.pool = multiprocessing.Pool(n_procs) 
         
-        
+        if not sampling_scheme:
+            sampling_scheme = [tuple(self.model.stochastics.keys())]
+ 
         n_params = len(self.model.stochastics)
+        n_blocks = len(sampling_scheme)
         
         if not n_chains:
             n_chains = 2*n_params + 1
@@ -68,8 +78,8 @@ class DESampler(object):
         
         self.chains = np.zeros((n_chains, n_params, n_samples))
         self.accepted = np.zeros_like(self.chains)
-        self.new_logp = np.zeros((n_chains, n_samples))
-        self.old_logp = np.zeros((n_chains, n_samples))
+        self.new_logp = np.zeros((n_chains, n_samples, n_blocks))
+        self.old_logp = np.zeros((n_chains, n_samples, n_blocks))
         
         models= []
         
@@ -89,6 +99,8 @@ class DESampler(object):
 
         pbar = ProgressBar(n_samples)
 
+        migration= stats.uniform.rvs(0, 1, (n_chains, n_samples)) < migration
+
 
         if sampling_scheme:
             tmp = []
@@ -96,12 +108,48 @@ class DESampler(object):
                 tmp.append([self.model.stochastics.keys().index(e) for e in block])
         
             sampling_scheme = tmp
+       
+
+        if n_procs:
+            ### PARALLEL 
+            for sample in np.arange(1, n_samples):
+                for block_idx, block in enumerate(sampling_scheme):
+                    tmp_models = []
+                    for chain in np.arange(n_chains):
+                        
+                        chain_m = selects[chain, sample, 0]
+                        chain_n = selects[chain, sample, 1]
+
+                        current_param = models[chain].get_param_vector()
+
+                        if migration[chain, sample]:
+                            proposal_param = current_param
+                            proposal_param[block] = (self.chains[chain_m, :, sample-1] + bs[chain, :, sample])[block]
+                        else:
+                            proposal_param = current_param
+                            proposal_param[block] = current_param[block] + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1])[block] + bs[chain, :, sample][block]
+                        
+                        tmp_models.append(models[chain].copy())
+                        tmp_models[-1].set_param_vector(proposal_param)
+
+                    new_logps = np.array(self.pool.map(_get_logp, tmp_models))
+                    old_logps = np.array([model.get_logp() for model in models])
+                        
+                    self.old_logp[:, sample, block_idx] = old_logps
+                    self.new_logp[:, sample, block_idx] = new_logps
+                    
+                    models = np.where(new_logps - old_logps < unif[chain, sample], tmp_models, models)
+            
+                for i, m in enumerate(models):
+                    self.chains[i, :, sample] = m.get_param_vector()
+                        
+                pbar.animate(sample + 1)
+
         
-        for sample in np.arange(1, n_samples):
-
-
-            if sampling_scheme:
-                for block in sampling_scheme:
+        else:
+            ### NOT PARALLEL
+            for sample in np.arange(1, n_samples):
+                for block_idx, block in enumerate(sampling_scheme):
                     for chain in np.arange(n_chains):
                         
                         old_logp = models[chain].get_logp()
@@ -111,17 +159,21 @@ class DESampler(object):
 
                         current_param = models[chain].get_param_vector()
 
-                       
-                        proposal_param = current_param
-                        proposal_param[block] = current_param[block] + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1])[block] + bs[chain, :, sample][block]
+                        if migration[chain, sample]:
+                            proposal_param = current_param
+                            proposal_param[block] = (self.chains[chain_m, :, sample-1] + bs[chain, :, sample])[block]
+                        else:
+                            proposal_param = current_param
+                            proposal_param[block] = current_param[block] + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1])[block] + bs[chain, :, sample][block]
                         
                         tmp_model = models[chain].copy()
+                        ### Parallel
                         tmp_model.set_param_vector(proposal_param)
                         
                         new_logp = tmp_model.get_logp()
                         
-                        self.old_logp[chain, sample] = old_logp 
-                        self.new_logp[chain, sample] = new_logp
+                        self.old_logp[chain, sample, block_idx] = old_logp 
+                        self.new_logp[chain, sample, block_idx] = new_logp
                         
                         # Accept
                         if new_logp - old_logp > unif[chain, sample]:
@@ -130,29 +182,8 @@ class DESampler(object):
                         else:
                             self.chains[chain, :, sample] = self.chains[chain, :, sample - 1]
 
-
-            else:
-                for chain in np.arange(n_chains):
-                    old_logp = models[chain].get_logp()
-                    
-                    chain_m = selects[chain, sample, 0]
-                    chain_n = selects[chain, sample, 1]
-                    
-                    proposal_param = models[chain].get_param_vector() + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1]) + bs[chain, :, sample]
-                    
-                    tmp_model = models[chain].copy()
-                    tmp_model.set_param_vector(proposal_param)
-                    
-                    new_logp = tmp_model.get_logp()
-                    
-                    # Accept
-                    if new_logp - old_logp > unif[chain, sample]:
-                        self.chains[chain, :, sample] = proposal_param
-                        models[chain] = tmp_model
-                    else:
-                        self.chains[chain, :, sample] = self.chains[chain, :, sample - 1]
-                    
-            pbar.animate(sample + 1)
+                        
+                pbar.animate(sample + 1)
 
 
     def get_trace(self, key):
