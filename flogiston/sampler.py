@@ -192,29 +192,35 @@ class DESampler(object):
         idx = self.model.stochastics.keys().index(key)
         return self.chains[:, idx, burnin:]
 
-    def plot_traces(self, burnin=0, thin=1):
+    def plot_traces(self, burnin=0, thin=1, **kwargs):
         keys = sorted(self.model.stochastics.keys())
-        
+
         for key in keys:
             plt.figure()
             plt.title(key)
             sns.distplot(self.get_trace(key)[:, burnin::thin].ravel())
 
-    def plot_chains(self, key, burnin=0,):
-        plt.plot(self.get_trace(key)[:, burnin:].T)
+    def plot_chains(self, key, burnin=0, **kwargs):
+        color = kwargs.pop('color', 'k')
+        alpha = kwargs.pop('alpha', 0.3)
+        
+        plt.plot(self.get_trace(key)[:, burnin:].T, color=color, alpha=alpha, **kwargs)
             
 
 
 
 class Node:
 
-    def __init__(self, name, parents, value=None, observed=False):
+    def __init__(self, name, parents, value=None, observed=False, starting_value=None):
 
         self.name = name
 
         self.observed = observed
+        self.is_stochastic = not observed
 
         self.parents = {}
+
+        self.starting_value = starting_value
         
         for key, v in parents.items():
             # parameter is linked to parent node
@@ -229,9 +235,9 @@ class Node:
             self.parents[key].children.append(self)
                 
         if value != None:
-            self.value = value
+            self.set_value(value)
         else:
-            self.value = self.random()
+            self.get_starting_values()
 
         self.logp = None
 
@@ -263,15 +269,21 @@ class Node:
         return self.value
 
     def get_starting_values(self):
-        self.set_value(self.random())
+        if self.starting_value is None:
+            self.set_value(self.random())
+        else:
+            self.set_value(self.starting_value)
+
+
+    def __repr__(self):
+        return "%s <%s instance at %s>" % (self.name, self.__class__.__name__, id(self))
 
 
 class FixedValueNode(Node):
 
     def __init__(self, name, value):
         self.children = []
-        self.is_stochastic = False
-        Node.__init__(self, name, {}, value=value)
+        Node.__init__(self, name, {}, value=value, observed=True)
 
     def _likelihood(self, values):
         return 0
@@ -282,14 +294,12 @@ class FixedValueNode(Node):
 
 class Normal(Node):
     
-    def __init__(self, name, mu, sigma, value=None, observed=False):
+    def __init__(self, name, mu, sigma, **kwargs ):
         self.is_group_parameter = True
         self.children = []
 
-        self.is_stochastic = not observed
-        
         # No parents, fixed values
-        Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, value, observed=observed )
+        Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, value, observed=observed, **kwargs )
     
     def _likelihood(self, values):
         return np.sum(np.log(protect_zeroes(stats.norm.pdf(loc=self.parents['mu'].get_value(), scale=self.parents['sigma'].get_value(), x=values))))
@@ -300,15 +310,14 @@ class Normal(Node):
     
 class TruncatedNormal(Node):
     
-    def __init__(self, name, mu, sigma, lower=0, upper=np.inf, observed=False, value=None):
+    def __init__(self, name, mu, sigma, lower=0, upper=np.inf, **kwargs):
         
         a, b = (lower - mu) / sigma, (upper - mu) / sigma                    
         self.is_group_parameter = True
         self.children = []
 
-        self.is_stochastic = not observed
 
-        Node.__init__(self, name, {'mu':mu, 'sigma':sigma, 'a':a, 'b':b}, value=value )
+        Node.__init__(self, name, {'mu':mu, 'sigma':sigma, 'a':a, 'b':b}, **kwargs)
         
     
     def _likelihood(self, values):
