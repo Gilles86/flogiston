@@ -188,9 +188,9 @@ class DESampler(object):
                 pbar.animate(sample + 1)
 
 
-    def get_trace(self, key):
+    def get_trace(self, key, burnin=0):
         idx = self.model.stochastics.keys().index(key)
-        return self.chains[:, idx, :]
+        return self.chains[:, idx, burnin:]
 
     def plot_traces(self, burnin=0, thin=1):
         keys = sorted(self.model.stochastics.keys())
@@ -199,6 +199,9 @@ class DESampler(object):
             plt.figure()
             plt.title(key)
             sns.distplot(self.get_trace(key)[:, burnin::thin].ravel())
+
+    def plot_chains(self, key, burnin=0,):
+        plt.plot(self.get_trace(key)[:, burnin:].T)
             
 
 
@@ -320,3 +323,4 @@ class TruncatedNormal(Node):
                                    a=self.parents['a'].get_value(), 
                                    b=self.parents['b'].get_value(),)
     
+
