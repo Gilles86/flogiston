@@ -10,6 +10,7 @@ def pnormP(x, mean=0, sd=1):
     R: pnormP  <- function(x,mean=0,sd=1,lower.tail=T){ifelse(abs(x)<7,pnorm(x,mean,sd,lower.tail),ifelse(x<0,0,1))}
     """
     return np.where(np.abs(x-mean)<7.*sd, stats.norm.cdf(x, loc=mean,scale=sd), np.where(x<mean,0,1))
+
 def dnormP(x, mean=0, sd=1):
     """standard normal PDF with numerical stability
     R: dnormP <- function(x,mean=0,sd=1,lower.tail=T){ifelse(abs(x)<7,dnorm(x,mean,sd),0)}
@@ -36,13 +37,14 @@ def simple_single_trial_ols(frametimes, onsets, bold):
     return np.linalg.pinv(X.T.dot(X)).dot(X.T).dot(bold)
 
 
-def data_histogram(responses, RTs, max_RT=2.0, color_palette='Set1', **kwargs):
+def data_histogram(responses, RTs, t_max=2.0, bins=None, color_palette='Set1', **kwargs):
     
     if 'alpha' not in kwargs:
         kwargs['alpha'] = 0.8
 
+    if bins == None:
+        bins = np.linspace(0, t_max, np.min((np.max((responses.shape[0] / 25, 25)), 50)))
 
-    bins = np.linspace(0, max_RT, np.min((np.max((responses.shape[0] / 25, 25)), 50)))
     bin_width = bins[1] - bins[0]
 
     colors = sns.color_palette(color_palette)
