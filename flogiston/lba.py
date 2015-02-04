@@ -2,7 +2,7 @@ from scipy import stats
 from utils import dnormP, pnormP
 import numpy as np
 from sampler import Node
-
+from bold import simulate_bold
 
 def pdf(ter, A, v, sv, b, t):
     """LBA PDF for a single accumulator"""
@@ -34,7 +34,7 @@ def cdf(ter, A, v, sv, b, t):
     tmp2=xx*pnormP(bzumax)-bminuszu*pnormP(bzu)
     return np.minimum(np.maximum(0,(1+(tmp1+tmp2)/A)/pnormP(v/sv)),1)
 
-def generate_lba_data(ters, As, vs, svs, bs, truncated=True,  n=500):
+def generate_lba_data(ters, As, vs, svs, bs, bold=None, height_intercept=1.0, delay_intercept=6.0, height_theta=1.0, delay_theta=0.0, truncated=True, trial_length=10, TR=2.0, n=500):
 
     ters = np.array(ters)
     As = np.array(As)
@@ -58,7 +58,28 @@ def generate_lba_data(ters, As, vs, svs, bs, truncated=True,  n=500):
     RTs = T.min(1)
     responses += 1
 
-    return responses, RTs
+    if bold is not None:
+        expression = 0
+        if bold == 'first_drift':
+            expression = zv[:, 0] - vs[0]
+        elif bold == 'total_drift':
+            expression = zv.sum(1) - vs.sum()
+        elif bold == 'first_threshold':
+            expression = -zs[:,0] - A/2 #bs[0] - zs[:,0] - bs[0] - A/2
+        elif bold == 'total_distance':
+            expression = (zv * RTs[:, np.newaxis]).sum(1) - (zv * RTs[:, np.newaxis]).sum(1).mean()
+
+        heights = height_intercept + (expression) * height_theta
+        delays = delay_intercept + (expression) * delay_theta
+
+        onsets = np.arange(0, n*trial_length,trial_length)
+        frametimes = np.arange(0,(n+1)*trial_length,TR)
+
+        bold = simulate_bold(frametimes, onsets, heights, peak_delays=delays)
+
+        return responses, RTs, bold, frametimes, onsets
+
+    return responses, RT
 
 
 def likelihood(responses, RTs, ters, As, vs, svs, Bs, n_responses=2, n_conditions=None, conditions=None, return_individual_ll=False):
@@ -114,8 +135,8 @@ def plot_likelihood(ters, As, vs, svs, bs, t_max=2.0, n_ts=100, color_palette='S
     responses = np.arange(1, len(ters)+1)
     t = np.linspace(0, t_max, n_ts)
 
-    for resp, color in zip([1, 2], colors):
-        plt.plot(t, [np.exp(likelihood(np.array([resp]), np.array([tmp]), ters, As, vs, svs, bs)) for tmp in t], color=color, **kwargs)
+    for resp, color in zip(responses, colors):
+        plt.plot(t, np.exp(likelihood(np.array([resp] * len(t)), t, ters, As, vs, svs, bs, return_individual_ll=True)), color=color, **kwargs)
 
 
 
