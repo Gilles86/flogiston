@@ -188,12 +188,12 @@ class DESampler(object):
                 pbar.animate(sample + 1)
 
 
-    def get_trace(self, key, burnin=0, combine_chains=True):
+    def get_trace(self, key, burnin=0, combine_chains=True, thin=1):
         idx = self.model.stochastics.keys().index(key)
         if combine_chains:
-            return self.chains[:, idx, burnin:].ravel()
+            return self.chains[:, idx, burnin::thin].ravel()
         else:
-            return self.chains[:, idx, burnin:]
+            return self.chains[:, idx, burnin::thin]
 
 
     def plot_traces(self, burnin=0, thin=1, **kwargs):
@@ -202,13 +202,13 @@ class DESampler(object):
         for key in keys:
             plt.figure()
             plt.title(key)
-            sns.distplot(self.get_trace(key)[:, burnin::thin].ravel())
+            sns.distplot(self.get_trace(key, burnin=burnin, combine_chains=True, thin=thin))
 
     def plot_chains(self, key, burnin=0, **kwargs):
         color = kwargs.pop('color', 'k')
         alpha = kwargs.pop('alpha', 0.3)
         
-        plt.plot(self.get_trace(key)[:, burnin:].T, color=color, alpha=alpha, **kwargs)
+        plt.plot(self.get_trace(key, burnin=burnin, combine_chains=False).T, color=color, alpha=alpha, **kwargs)
             
 
 
@@ -303,7 +303,7 @@ class Normal(Node):
         self.children = []
 
         # No parents, fixed values
-        Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, value, observed=observed, **kwargs )
+        Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, **kwargs )
     
     def _likelihood(self, values):
         return np.sum(np.log(protect_zeroes(stats.norm.pdf(loc=self.parents['mu'].get_value(), scale=self.parents['sigma'].get_value(), x=values))))
