@@ -54,3 +54,8 @@ def data_histogram(responses, RTs, t_max=2.0, bins=None, color_palette='Set1', *
         hist = hist / bin_width / responses.shape[0]
         plt.bar(bin_edges[:-1], hist, width=(bin_edges[1] - bin_edges[0]), color=color, **kwargs)
         
+def pack_conditions_responses_param(param, n_conditions, n_responses):
+        if type(param) != list:
+            param = [[param] * n_conditions] * n_responses
+        
+        return param
