@@ -2,7 +2,7 @@ from scipy import stats
 from utils import dnormP, pnormP
 import numpy as np
 from sampler import Node
-from bold import simulate_bold
+from bold import simulate_bold, get_likelihood_hrf
 
 def pdf(ter, A, v, sv, b, t):
     """LBA PDF for a single accumulator"""
@@ -62,13 +62,18 @@ def generate_lba_data(ters, As, vs, svs, bs, bold=None, height_intercept=1.0, de
         expression = 0
         if bold == 'first_drift':
             expression = zv[:, 0] - vs[0]
+        if bold == 'winning_drift':
+            print zv.shape, zv[np.arange(zv.shape[0]), responses-1].shape, vs[responses-1].shape
+            expression = zv[np.arange(zv.shape[0]), responses-1] - vs[responses-1]
         elif bold == 'total_drift':
             expression = zv.sum(1) - vs.sum()
-        elif bold == 'first_threshold':
-            expression = -zs[:,0] - A/2 #bs[0] - zs[:,0] - bs[0] - A/2
+        elif bold == 'winning_distance':
+            expression = -zs[:,0] - As[0]/2 #bs[0] - zs[:,0] - bs[0] - A/2
+        elif bold == 'first_distance':
+            expression = zs[:,0]#bs[0] - zs[:,0] - bs[0] - A/2
         elif bold == 'total_distance':
             expression = (zv * RTs[:, np.newaxis]).sum(1) - (zv * RTs[:, np.newaxis]).sum(1).mean()
-
+        
         heights = height_intercept + (expression) * height_theta
         delays = delay_intercept + (expression) * delay_theta
 
@@ -139,6 +144,29 @@ def plot_likelihood(ters, As, vs, svs, bs, t_max=2.0, n_ts=100, color_palette='S
         plt.plot(t, np.exp(likelihood(np.array([resp] * len(t)), t, ters, As, vs, svs, bs, return_individual_ll=True)), color=color, **kwargs)
 
 
+def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter, v, A, B, kind='winning_drift', sv=None, height_intercept=1.0, delay_intercept=6.0, height_theta=1.0, delay_theta=0.0, n_conditions=1):
+ 
+
+    if sv == None:
+        sv = np.ones_like(ter)
+
+    if kind == 'winning_drift':
+        print 'yo'
+        expressions = np.zeros_like(responses)
+
+        if np.all(A == 0):
+
+            T = RTs - ter[responses - 1].ravel()
+            emp_v = B[responses-1].ravel() / T
+            
+            #pd = stats.norm.pdf(x=emp_v, loc=v[responses-1], scale=sv[responses-1])
+            
+            expression = emp_v - v[responses-1, conditions-1]
+
+    heights = height_intercept + expression * height_theta
+    delays = delay_intercept + expression * delay_theta
+
+    return get_likelihood_hrf(bold, frametimes, onsets, heights, peak_delays=delays)
 
 
 class LBA(Node):
