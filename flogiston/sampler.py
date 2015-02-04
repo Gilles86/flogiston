@@ -188,9 +188,13 @@ class DESampler(object):
                 pbar.animate(sample + 1)
 
 
-    def get_trace(self, key, burnin=0):
+    def get_trace(self, key, burnin=0, combine_chains=True):
         idx = self.model.stochastics.keys().index(key)
-        return self.chains[:, idx, burnin:]
+        if combine_chains:
+            return self.chains[:, idx, burnin:].ravel()
+        else:
+            return self.chains[:, idx, burnin:]
+
 
     def plot_traces(self, burnin=0, thin=1, **kwargs):
         keys = sorted(self.model.stochastics.keys())
