@@ -153,7 +153,8 @@ def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=No
         if np.all(A == 0):
             T = RTs - ter[responses - 1, conditions - 1]
             emp_v = B[responses-1, conditions-1] / T
-            expression = emp_v - v[responses-1, conditions-1]
+            #expression = emp_v - v[responses-1, conditions-1]
+            expression = emp_v - emp_v.mean()
     
     heights = height_intercept[responses - 1, conditions -1] + expression * height_theta[responses - 1, conditions -1]
     delays = delay_intercept[responses - 1, conditions -1] + expression * delay_theta[responses - 1, conditions -1]
