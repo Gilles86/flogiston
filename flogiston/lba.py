@@ -170,9 +170,6 @@ class LBA(Node):
         " This Node expects lists of nodes as parents!!"
         " Example: [[ter_resp1_cond1, ter_resp1_cond2], [ter_resp2_cond1, ter_resp2_cond2]] "
         
-        self.stochastic = False
-        self.children = []
-
         if not n_conditions or not n_responses:
             for l in [ter, v, A, B]:
                 if type(l) == list:
@@ -203,7 +200,7 @@ class LBA(Node):
                     self.parent_node_keys[par][resp_idx].insert(cond_idx, key)
                     parents[key] = locals()[par][resp_idx][cond_idx]
 
-        Node.__init__(self, name, parents, value=value, **kwargs )
+        Node.__init__(self, name, parents, value=value, observed=True, **kwargs )
 
     
     def _likelihood(self, values):
