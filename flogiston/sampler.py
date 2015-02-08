@@ -218,11 +218,11 @@ class Node:
     def __init__(self, name, parents, value=None, observed=False, starting_value=None):
 
         self.name = name
-
         self.observed = observed
         self.is_stochastic = not observed
 
         self.parents = {}
+        self.children = []
 
         self.starting_value = starting_value
         
@@ -272,11 +272,25 @@ class Node:
     def get_value(self):
         return self.value
 
-    def get_starting_values(self):
-        if self.starting_value is None:
-            self.set_value(self.random())
+    def get_starting_values(self, n_tries=100):
+
+        if self.observed:
+            failed = 0
+
+            while failed < n_tries:
+                for parent in self.parents.values():
+                    parent.get_starting_values()
+            
+                if self.get_logp() != -np.inf:
+                    return None
+           
+            raise Exception('Initializing %s failed after %d tries' % (self, n_tries))
         else:
-            self.set_value(self.starting_value)
+
+            if self.starting_value is None:
+                self.set_value(self.random())
+            else:
+                self.set_value(self.starting_value)
 
 
     def __repr__(self):
@@ -286,7 +300,6 @@ class Node:
 class FixedValueNode(Node):
 
     def __init__(self, name, value):
-        self.children = []
         Node.__init__(self, name, {}, value=value, observed=True)
 
     def _likelihood(self, values):
@@ -300,7 +313,6 @@ class Normal(Node):
     
     def __init__(self, name, mu, sigma, **kwargs ):
         self.is_group_parameter = True
-        self.children = []
 
         # No parents, fixed values
         Node.__init__(self, name, {'mu':mu, 'sigma':sigma}, **kwargs )
@@ -316,24 +328,42 @@ class TruncatedNormal(Node):
     
     def __init__(self, name, mu, sigma, lower=0, upper=np.inf, **kwargs):
         
-        a, b = (lower - mu) / sigma, (upper - mu) / sigma                    
-        self.is_group_parameter = True
-        self.children = []
 
-
-        Node.__init__(self, name, {'mu':mu, 'sigma':sigma, 'a':a, 'b':b}, **kwargs)
+        Node.__init__(self, name, {'mu':mu, 'sigma':sigma, 'lower':lower, 'upper':upper}, **kwargs)
         
     
     def _likelihood(self, values):
+        a = (self.parents['lower'].get_value() - self.parents['mu'].get_value()) / self.parents['sigma'].get_value()
+        b = (self.parents['upper'].get_value() - self.parents['mu'].get_value()) / self.parents['sigma'].get_value()
+
         return np.sum(np.log(protect_zeroes(stats.truncnorm.pdf(loc=self.parents['mu'].get_value(),
                                                                 scale=self.parents['sigma'].get_value(), 
-                                                                a=self.parents['a'].get_value(), 
-                                                                b=self.parents['b'].get_value(), 
+                                                                a=a, 
+                                                                b=b, 
                                                                 x=values))))
     def random(self):
+        a = (self.parents['lower'].get_value() - self.parents['mu'].get_value()) / self.parents['sigma'].get_value()
+        b = (self.parents['upper'].get_value() - self.parents['mu'].get_value()) / self.parents['sigma'].get_value()
+
         return stats.truncnorm.rvs(loc=self.parents['mu'].get_value(),
                                    scale=self.parents['sigma'].get_value(), 
-                                   a=self.parents['a'].get_value(), 
-                                   b=self.parents['b'].get_value(),)
+                                   a=a, 
+                                   b=b,)
+    
+class Gamma(Node):
+    
+    def __init__(self, name, alpha, beta, **kwargs):
+        
+
+        Node.__init__(self, name, {'alpha':alpha, 'beta':beta}, **kwargs)
+        
+    
+    def _likelihood(self, values):
+        return np.sum(np.log(protect_zeroes(stats.gamma.pdf(a=self.parents['alpha'].get_value(),
+                                                            scale=1./self.parents['beta'].get_value(),
+                                                            x=values))))
+    def random(self):
+        return stats.gamma.rvs(a=self.parents['alpha'].get_value(),
+                               scale=1./self.parents['beta'].get_value())
     
 
