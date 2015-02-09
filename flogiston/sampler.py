@@ -30,9 +30,10 @@ class Model(object):
     def copy(self):
         return deepcopy(self)
     
-    def get_starting_values(self):
-        for node in self.stochastics.values():
-            node.get_starting_values()
+    def get_starting_values(self, n_tries=1000,):
+        for node in self.nodes:
+            if node.observed:
+                node.get_starting_values(n_tries=n_tries, verbose=False)
             
     def get_param_vector(self):
         return np.array([node.get_value() for node in self.stochastics.values()])
@@ -61,32 +62,30 @@ def _perform_mutation(args):
     model, migration, gamma, param_m, param_n, b, unif, blocks = args
 
 
-    if migration:
-        model.set_param_vector(param_m + b)
-    
-    else:
+    current_param = model.get_param_vector()
 
-        current_param = model.get_param_vector()
+    for block in blocks:
 
-        for block in blocks:
+        old_logp = model.get_logp()
+        
+        tmp_model = model.copy()        
 
-            old_logp = model.get_logp()
-            
-            tmp_model = model.copy()        
-            
-            proposal_param = current_param
-            
+        proposal_param = current_param
+        
+        if migration:
+            proposal_param[block] = (param_m + b)[block]
+        else:
             proposal_param[block] += gamma * (param_m[block] - param_n[block]) + b[block]
-            
-            tmp_model.set_param_vector(proposal_param)
-            
-            new_logp = tmp_model.get_logp()
-            
-            #print 'Current param: %s, proposal param: %s' % (current_param, proposal_param)
-            if new_logp - old_logp > unif:
-                current_param = proposal_param
-                model = tmp_model
-                #print "accepted"
+        
+        tmp_model.set_param_vector(proposal_param)
+        
+        new_logp = tmp_model.get_logp()
+        
+        #print 'Current param: %s, proposal param: %s' % (current_param, proposal_param)
+        if new_logp - old_logp > unif:
+            current_param = proposal_param
+            model = tmp_model
+            #print "accepted"
 
             
     return model
@@ -317,7 +316,7 @@ class Node:
     def get_value(self):
         return self.value
 
-    def get_starting_values(self, n_tries=100):
+    def get_starting_values(self, n_tries=100, verbose=True):
 
         if self.observed:
             failed = 0
@@ -327,7 +326,8 @@ class Node:
                     parent.get_starting_values()
             
                 if self.get_logp() != -np.inf:
-                    print "Succesful init after %d tries" % failed
+                    if verbose:
+                        print "Succesful init after %d tries" % failed
                     return None
 
                 failed += 1
