@@ -51,6 +51,45 @@ class Model(object):
 
 def _get_logp(model):
     return model.get_logp()
+
+
+
+def _perform_mutation(args):
+   
+    #print args
+
+    model, migration, gamma, param_m, param_n, b, unif, blocks = args
+
+
+    if migration:
+        model.set_param_vector(param_m + b)
+    
+    else:
+
+        current_param = model.get_param_vector()
+
+        for block in blocks:
+
+            old_logp = model.get_logp()
+            
+            tmp_model = model.copy()        
+            
+            proposal_param = current_param
+            
+            proposal_param[block] += gamma * (param_m[block] - param_n[block]) + b[block]
+            
+            tmp_model.set_param_vector(proposal_param)
+            
+            new_logp = tmp_model.get_logp()
+            
+            #print 'Current param: %s, proposal param: %s' % (current_param, proposal_param)
+            if new_logp - old_logp > unif:
+                current_param = proposal_param
+                model = tmp_model
+                #print "accepted"
+
+            
+    return model
              
 class DESampler(object):
     
@@ -113,37 +152,28 @@ class DESampler(object):
         if n_procs:
             ### PARALLEL 
             for sample in np.arange(1, n_samples):
-                for block_idx, block in enumerate(sampling_scheme):
-                    tmp_models = []
-                    for chain in np.arange(n_chains):
-                        
-                        chain_m = selects[chain, sample, 0]
-                        chain_n = selects[chain, sample, 1]
+               #print models, [gamma]*n_chains, self.chains[selects[:, sample, 0], :, sample-1], self.chains[selects[:, sample, 1], :, sample-1], bs[:, :, sample], unif[:, sample], [sampling_scheme]*n_chains
 
-                        current_param = models[chain].get_param_vector()
 
-                        if migration[chain, sample]:
-                            proposal_param = current_param
-                            proposal_param[block] = (self.chains[chain_m, :, sample-1] + bs[chain, :, sample])[block]
-                        else:
-                            proposal_param = current_param
-                            proposal_param[block] = current_param[block] + gamma * (self.chains[chain_m, :, sample-1] - self.chains[chain_n, :, sample-1])[block] + bs[chain, :, sample][block]
-                        
-                        tmp_models.append(models[chain].copy())
-                        tmp_models[-1].set_param_vector(proposal_param)
+               #for arg in  zip(models, migration[:, sample], [gamma]*n_chains, self.chains[selects[:, sample, 0], :, sample-1], self.chains[selects[:, sample, 1], :, sample-1], bs[:, :, sample], unif[:, sample], [sampling_scheme]*n_chains,):
 
-                    new_logps = np.array(self.pool.map(_get_logp, tmp_models))
-                    old_logps = np.array([model.get_logp() for model in models])
-                        
-                    self.old_logp[:, sample, block_idx] = old_logps
-                    self.new_logp[:, sample, block_idx] = new_logps
-                    
-                    models = np.where(new_logps - old_logps > unif[chain, sample], tmp_models, models)
+                   #print _perform_mutation(arg).get_param_vector()
+
+                #model, migration, gamma, param_m, param_n, b, unif, blocks = args
+               models =  self.pool.map(_perform_mutation, zip(models,
+                                                          migration[:, sample],
+                                                          [gamma]*n_chains,
+                                                          self.chains[selects[:, sample, 0], :, sample-1],
+                                                          self.chains[selects[:, sample, 1], :, sample-1],
+                                                          bs[:, :, sample],
+                                                          unif[:, sample],
+                                                          [sampling_scheme]*n_chains, ))
+               
+               for i, model in enumerate(models):
+                   self.chains[i, :, sample] = model.get_param_vector()
+
             
-                for i, m in enumerate(models):
-                    self.chains[i, :, sample] = m.get_param_vector()
-                        
-                pbar.animate(sample + 1)
+               pbar.animate(sample + 1)
 
             self.pool.close()
 
@@ -215,11 +245,15 @@ class DESampler(object):
 
 class Node:
 
-    def __init__(self, name, parents, value=None, observed=False, starting_value=None):
+    def __init__(self, name, parents, value=None, stochastic=None, observed=False, starting_value=None):
 
         self.name = name
         self.observed = observed
-        self.is_stochastic = not observed
+
+        if stochastic == None:
+            self.is_stochastic = not observed
+        else:
+            self.is_stochastic = stochastic
 
         self.parents = {}
         self.children = []
@@ -245,6 +279,17 @@ class Node:
 
         self.logp = None
 
+    def get_family(self):
+
+        family = self.children
+
+        if self.observed:
+            return []
+
+        for child in self.children:
+            family += child.get_family()
+
+        return family
  
     def get_logp(self):
         
@@ -282,7 +327,10 @@ class Node:
                     parent.get_starting_values()
             
                 if self.get_logp() != -np.inf:
+                    print "Succesful init after %d tries" % failed
                     return None
+
+                failed += 1
            
             raise Exception('Initializing %s failed after %d tries' % (self, n_tries))
         else:
@@ -300,7 +348,7 @@ class Node:
 class FixedValueNode(Node):
 
     def __init__(self, name, value):
-        Node.__init__(self, name, {}, value=value, observed=True)
+        Node.__init__(self, name, {}, stochastic=False, value=value, observed=False)
 
     def _likelihood(self, values):
         return 0
@@ -324,6 +372,15 @@ class Normal(Node):
         return stats.norm.rvs(loc=self.parents['mu'].get_value(), scale=self.parents['sigma'].get_value())
     
     
+##Notes
+#-----
+#The standard form of this distribution is a standard normal truncated to
+#the range [a, b] --- notice that a and b are defined over the domain of the
+#standard normal.  To convert clip values for a specific mean and standard
+#deviation, use::
+
+    #a, b = (myclip_a - my_mean) / my_std, (myclip_b - my_mean) / my_std
+
 class TruncatedNormal(Node):
     
     def __init__(self, name, mu, sigma, lower=0, upper=np.inf, **kwargs):
