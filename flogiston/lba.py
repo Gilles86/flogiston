@@ -171,11 +171,14 @@ def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=No
 
         likelihood = 0
 
+        T = RTs - ter[responses - 1, conditions - 1]
+
         for quantile in np.arange(n_integration_points):
-            current_distances = RTs * possible_vs[responses - 1, conditions - 1, quantile]
+            current_distances = T * possible_vs[responses - 1, conditions - 1, quantile]
             expression = current_distances
-            expression -= B[responses - 1, conditions - 1] + (A[responses - 1, conditions - 1]/2.)
-            
+            #expression -= B[responses - 1, conditions - 1] + (A[responses - 1, conditions - 1]/2.)
+            expression -= T * v[responses - 1, conditions - 1]
+
             heights = height_intercept[responses - 1, conditions -1] + expression * height_theta[responses - 1, conditions -1]
             delays = delay_intercept[responses - 1, conditions -1] + expression * delay_theta[responses - 1, conditions -1]
             
