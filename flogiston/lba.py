@@ -64,11 +64,13 @@ def generate_lba_data(ters, As, vs, svs, bs, bold=None, height_intercept=1.0, de
         if bold == 'first_drift':
             expression = zv[:, 0] - vs[0]
         if bold == 'winning_drift':
+            print 'winning drift'
             expression = zv[np.arange(zv.shape[0]), responses-1] - vs[responses-1]
         elif bold == 'total_drift':
             expression = zv.sum(1) - vs.sum()
         elif bold == 'winning_distance':
             expression = -zs[np.arange(zs.shape[0]),responses-1] - As[responses-1]/2 #bs[0] - zs[:,0] - bs[0] - A/2
+            print 'winning distance'
         elif bold == 'first_distance':
             expression = zs[:,0]#bs[0] - zs[:,0] - bs[0] - A/2
         elif bold == 'total_distance':
@@ -143,7 +145,7 @@ def plot_likelihood(ters, As, vs, svs, bs, t_max=2.0, n_ts=100, color_palette='S
         plt.plot(t, np.exp(likelihood(np.array([resp] * len(t)), t, ters, As, vs, svs, bs, return_individual_ll=True)), color=color, **kwargs)
 
 
-def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=None, v=None, A=None, B=None, kind='winning_drift', sv=None, height_intercept=1.0, delay_intercept=6.0, height_theta=1.0, delay_theta=0.0, n_conditions=1, n_responses=2):
+def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=None, v=None, A=None, B=None, kind='winning_drift', n_integration_points=10, sv=None, height_intercept=1.0, delay_intercept=6.0, height_theta=1.0, delay_theta=0.0, n_conditions=1, n_responses=2):
 
     if sv == None:
         sv = np.ones_like(ter)
@@ -155,6 +157,31 @@ def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=No
             emp_v = B[responses-1, conditions-1] / T
             #expression = emp_v - v[responses-1, conditions-1]
             expression = emp_v - emp_v.mean()
+
+    if kind == 'winning_threshold':
+
+        quantiles = np.linspace(0, 1, n_integration_points, endpoint=False) + (1. / n_integration_points / 2.)
+        n = stats.norm(loc=v[..., np.newaxis, ], scale=sv[..., np.newaxis])
+        possible_vs = n.ppf(quantiles)
+
+        pdfs = stats.norm().pdf(stats.norm().ppf(quantiles))
+
+        likelihood = 0
+
+        for quantile in np.arange(n_integration_points):
+            current_distances = RTs * possible_vs[responses - 1, conditions - 1, quantile]
+            expression = current_distances
+            expression -= B[responses - 1, conditions - 1] + (A[responses - 1, conditions - 1]/2.)
+            
+            heights = height_intercept[responses - 1, conditions -1] + expression * height_theta[responses - 1, conditions -1]
+            delays = delay_intercept[responses - 1, conditions -1] + expression * delay_theta[responses - 1, conditions -1]
+            
+            ll_bold = np.exp(np.array(get_likelihood_hrf(bold, frametimes, onsets, heights, dispersions=1, peak_delays=delays)).astype(np.longdouble))
+            
+            likelihood += pdfs[quantile] * 1. / n_integration_points * ll_bold
+            
+        likelihood = np.log(likelihood)
+        return likelihood
     
     heights = height_intercept[responses - 1, conditions -1] + expression * height_theta[responses - 1, conditions -1]
     delays = delay_intercept[responses - 1, conditions -1] + expression * delay_theta[responses - 1, conditions -1]
