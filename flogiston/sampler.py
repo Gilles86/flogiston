@@ -225,7 +225,7 @@ class DESampler(object):
             return self.chains[:, idx, burnin::thin]
 
 
-    def plot_traces(self, burnin=0, thin=1, **kwargs):
+    def plot_posteriors(self, burnin=0, thin=1, **kwargs):
         keys = sorted(self.model.stochastics.keys())
 
         for key in keys:
