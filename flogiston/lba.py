@@ -150,6 +150,8 @@ def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=No
     if sv == None:
         sv = np.ones_like(ter)
 
+    expression = 0
+
     if kind == 'winning_drift':
 
         if np.all(A == 0):
@@ -158,7 +160,8 @@ def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=No
             #expression = emp_v - v[responses-1, conditions-1]
             expression = emp_v - emp_v.mean()
 
-    if kind == 'winning_threshold':
+    if kind == 'winning_distance':
+        #print 'nigger'
 
         quantiles = np.linspace(0, 1, n_integration_points, endpoint=False) + (1. / n_integration_points / 2.)
         n = stats.norm(loc=v[..., np.newaxis, ], scale=sv[..., np.newaxis])
