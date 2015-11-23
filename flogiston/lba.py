@@ -9,21 +9,21 @@ def pdf(ter, A, v, sv, b, t):
     """LBA PDF for a single accumulator"""
     t=np.maximum(t-ter, 1e-5) # absorbed into pdf 
     if A<1e-10: # LATER solution
-        return np.maximum( 0, (b/(t**2)*dnormP(b/t, mean=v,sd=sv))
+        return np.maximum(1e-10, (b/(t**2)*dnormP(b/t, mean=v,sd=sv))
                           /pnormP(v/sv) )
     zs=t*sv
     zu=t*v
     bminuszu=b-zu
     bzu=bminuszu/zs
     bzumax=(bminuszu-A)/zs
-    return np.maximum(0, ((v*(pnormP(bzu)-pnormP(bzumax)) +
+    return np.maximum(1e-10, ((v*(pnormP(bzu)-pnormP(bzumax)) +
                     sv*(dnormP(bzumax)-dnormP(bzu)))/A)/pnormP(v/sv))
 
 def cdf(ter, A, v, sv, b, t):
     """LBA CDF for a single accumulator"""
     t=np.maximum(t-ter, 1e-5) # absorbed into cdf         
     if A<1e-10: # LATER solution
-        return np.minimum(1, np.maximum(0, (pnormP(b/t,mean=v,sd=sv))
+        return np.minimum(1 - 1e-10, np.maximum(1e-10, (pnormP(b/t,mean=v,sd=sv))
                                         /pnormP(v/sv) ))
     zs=t*sv
     zu=t*v
@@ -33,14 +33,16 @@ def cdf(ter, A, v, sv, b, t):
     bzumax=xx/zs
     tmp1=zs*(dnormP(bzumax)-dnormP(bzu))
     tmp2=xx*pnormP(bzumax)-bminuszu*pnormP(bzu)
-    return np.minimum(np.maximum(0,(1+(tmp1+tmp2)/A)/pnormP(v/sv)),1)
+    return np.minimum(np.maximum(1e-10,(1+(tmp1+tmp2)/A)/pnormP(v/sv)), 1 - 1e-10)
 
-def generate_lba_data(ters, As, vs, svs, bs, bold=None, height_intercept=1.0, delay_intercept=6.0, height_theta=1.0, delay_theta=0.0, truncated=True, trial_length=10, TR=2.0, n=500):
+def generate_lba_data(ters, As, vs, svs, Bs, bold=None, height_intercept=1.0, delay_intercept=6.0, height_theta=1.0, delay_theta=0.0, truncated=True, trial_length=10, TR=2.0, n=500):
 
     ters = np.array(ters)
     As = np.array(As)
     vs = np.array(vs)
-    bs = np.array(bs)
+    bs = As + np.array(Bs)
+
+    print bs
     svs = np.array(svs)
 
     n_accumulators = len(ters)
@@ -86,7 +88,7 @@ def generate_lba_data(ters, As, vs, svs, bs, bold=None, height_intercept=1.0, de
 
         return responses, RTs, bold, frametimes, onsets
 
-    return responses, RT
+    return responses, RTs
 
 
 def likelihood(responses, RTs, ters, As, vs, svs, Bs, n_responses=2, n_conditions=None, conditions=None, return_individual_ll=False):
@@ -178,6 +180,7 @@ def bold_likelihood(responses, RTs, conditions, bold, frametimes, onsets, ter=No
             expression = current_distances
             #expression -= B[responses - 1, conditions - 1] + (A[responses - 1, conditions - 1]/2.)
             expression -= T * v[responses - 1, conditions - 1]
+            #print expression.mean()
 
             heights = height_intercept[responses - 1, conditions -1] + expression * height_theta[responses - 1, conditions -1]
             delays = delay_intercept[responses - 1, conditions -1] + expression * delay_theta[responses - 1, conditions -1]
